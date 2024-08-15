@@ -29,6 +29,8 @@ tracing-actix-web = "0.7"
 validator = "0.16"
 
 [dev-dependencies]
+quickcheck = "0.9.2"
+quickcheck_macros = "0.9.1"
 fake = "~2.3"
 claims = "0.7"
 reqwest = "0.12"
