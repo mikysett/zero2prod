@@ -1,6 +1,6 @@
+use crate::email_client::EmailClient;
 use crate::routes::health_check;
 use crate::routes::subscribe;
-use crate::send_email::EmailClient;
 use actix_web::web;
 use actix_web::{dev::Server, App, HttpServer};
 use sqlx::PgPool;
