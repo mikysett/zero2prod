@@ -26,6 +26,7 @@ static TRACING: Lazy<()> = Lazy::new(|| {
 });
 
 pub struct TestApp {
+    pub port: u16,
     pub address: String,
     pub db_pool: PgPool,
     pub email_server: MockServer,
@@ -59,10 +60,12 @@ pub async fn spawn_app() -> TestApp {
     let application = Application::build(configuration.clone())
         .await
         .expect("Failed to build application");
+    let port = application.port();
     let address = format!("http://127.0.0.1:{}", application.port());
     let _ = tokio::spawn(application.run_until_stopped());
 
     TestApp {
+        port,
         address,
         db_pool: get_connection_pool(&configuration.database),
         email_server,
