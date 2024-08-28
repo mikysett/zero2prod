@@ -1,10 +1,9 @@
-use reqwest::Url;
 use wiremock::{
     matchers::{method, path},
     Mock, ResponseTemplate,
 };
 
-use crate::helpers::{spawn_app, ConfirmationLinks};
+use crate::helpers::{spawn_app};
 
 #[tokio::test]
 async fn confirmations_without_token_are_rejected_with_a_400() {
