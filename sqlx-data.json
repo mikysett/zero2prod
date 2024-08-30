@@ -1,9 +1,50 @@
 {
   "db": "PostgreSQL",
-  "5db1f9dfcdee685b02851f144e29d3e2726127d5a1d614880a0be89d8fa6904b": {
+  "19c4a60ae2da4825f4c39f2e062cf44d1480c8d4720d785be9a6c1f0ca8f3a11": {
     "describe": {
       "columns": [],
       "nullable": [],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "Update subscriptions SET status = 'confirmed' WHERE id = $1"
+  },
+  "3c959c5209acaa8fae10311ac43a71aa78436a96ec1d1846fe4baddd88daab15": {
+    "describe": {
+      "columns": [
+        {
+          "name": "subscription_token",
+          "ordinal": 0,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n        WITH existing_user AS (\n            SELECT subscription_token FROM subscription_tokens WHERE subscriber_id = $2\n        ), insert_if_needed AS (\n            INSERT INTO subscription_tokens (subscription_token, subscriber_id)\n            SELECT $1, $2\n            WHERE NOT EXISTS (SELECT 1 FROM existing_user)\n            RETURNING subscription_token\n        )\n        SELECT subscription_token FROM insert_if_needed\n        UNION ALL\n        SELECT subscription_token FROM existing_user\n        LIMIT 1;\n        "
+  },
+  "a60da7dbb8c85d715245c98e9f6f1a2d214c0f8114719c1aac8f240c1a9ac6c5": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        }
+      ],
+      "nullable": [
+        null
+      ],
       "parameters": {
         "Left": [
           "Uuid",
@@ -13,6 +54,26 @@
         ]
       }
     },
-    "query": "\n        INSERT INTO subscriptions (id, email, name, subscribed_at)\n        VALUES($1, $2, $3, $4)\n        "
+    "query": "\n        WITH insert_or_select AS (\n            INSERT INTO subscriptions (id, email, name, subscribed_at, status)\n            SELECT $1, $2, $3, $4, 'pending_confirmation'\n            ON CONFLICT (email) DO NOTHING\n            RETURNING id\n        )\n        SELECT id FROM insert_or_select\n        UNION ALL\n        SELECT id FROM subscriptions WHERE email = $2\n        LIMIT 1;\n        "
+  },
+  "ad120337ee606be7b8d87238e2bb765d0da8ee61b1a3bc142414c4305ec5e17f": {
+    "describe": {
+      "columns": [
+        {
+          "name": "subscriber_id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT subscriber_id FROM subscription_tokens WHERE subscription_token = $1"
   }
 }
