@@ -190,7 +190,7 @@ pub async fn send_confirmation_email(
         .await
 }
 
-fn generate_subscription_token() -> String {
+pub fn generate_subscription_token() -> String {
     let mut rng = thread_rng();
     std::iter::repeat_with(|| rng.sample(Alphanumeric))
         .map(char::from)
