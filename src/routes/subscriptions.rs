@@ -115,7 +115,11 @@ pub async fn store_token(
         tracing::error!("Failed to execute query: {:?}", e);
         e
     })?;
-    Ok(subscription_token.subscription_token.unwrap())
+    subscription_token
+        .subscription_token
+        .ok_or(sqlx::Error::ColumnNotFound(
+            "subscription_token".to_string(),
+        ))
 }
 
 #[tracing::instrument(
@@ -151,7 +155,10 @@ pub async fn insert_subscriber(
         tracing::error!("Failed to execute query: {:?}", e);
         e
     })?;
-    Ok(subscriber_id.id.unwrap())
+
+    subscriber_id
+        .id
+        .ok_or(sqlx::Error::ColumnNotFound("id".to_string()))
 }
 
 #[tracing::instrument(
