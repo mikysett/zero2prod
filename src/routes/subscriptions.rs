@@ -60,13 +60,11 @@ pub async fn subscribe(
             Ok(subscriber_id) => subscriber_id,
             Err(_) => return HttpResponse::InternalServerError().finish(),
         };
-    let subscription_token = generate_subscription_token();
-    if store_token(&mut transaction, subscriber_id, &subscription_token)
-        .await
-        .is_err()
-    {
-        return HttpResponse::InternalServerError().finish();
-    }
+    let subscription_token =
+        match store_token(&mut transaction, subscriber_id).await {
+            Ok(token) => token,
+            Err(_) => return HttpResponse::InternalServerError().finish(),
+        };
     if transaction.commit().await.is_err() {
         return HttpResponse::InternalServerError().finish();
     }
@@ -87,28 +85,37 @@ pub async fn subscribe(
 
 #[tracing::instrument(
     name = "Store subscription token in the database",
-    skip(transaction, subscription_token)
+    skip(transaction)
 )]
 pub async fn store_token(
     transaction: &mut Transaction<'_, Postgres>,
     subscriber_id: Uuid,
-    subscription_token: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query!(
+) -> Result<String, sqlx::Error> {
+    let subscription_token = sqlx::query!(
         r#"
-        INSERT INTO subscription_tokens (subscriber_id, subscription_token)
-        VALUES($1, $2)
+        WITH existing_user AS (
+            SELECT subscription_token FROM subscription_tokens WHERE subscriber_id = $2
+        ), insert_if_needed AS (
+            INSERT INTO subscription_tokens (subscription_token, subscriber_id)
+            SELECT $1, $2
+            WHERE NOT EXISTS (SELECT 1 FROM existing_user)
+            RETURNING subscription_token
+        )
+        SELECT subscription_token FROM insert_if_needed
+        UNION ALL
+        SELECT subscription_token FROM existing_user
+        LIMIT 1;
         "#,
+        generate_subscription_token(),
         subscriber_id,
-        subscription_token,
     )
-    .execute(transaction)
+    .fetch_one(transaction)
     .await
     .map_err(|e| {
         tracing::error!("Failed to execute query: {:?}", e);
         e
     })?;
-    Ok(())
+    Ok(subscription_token.subscription_token.unwrap())
 }
 
 #[tracing::instrument(
@@ -120,23 +127,31 @@ pub async fn insert_subscriber(
     new_subscriber: &NewSubscriber,
 ) -> Result<Uuid, sqlx::Error> {
     let subscriber_id = Uuid::new_v4();
-    sqlx::query!(
+    let subscriber_id = sqlx::query!(
         r#"
-        INSERT INTO subscriptions (id, email, name, subscribed_at, status)
-        VALUES($1, $2, $3, $4, 'pending_confirmation')
+        WITH insert_or_select AS (
+            INSERT INTO subscriptions (id, email, name, subscribed_at, status)
+            SELECT $1, $2, $3, $4, 'pending_confirmation'
+            ON CONFLICT (email) DO NOTHING
+            RETURNING id
+        )
+        SELECT id FROM insert_or_select
+        UNION ALL
+        SELECT id FROM subscriptions WHERE email = $2
+        LIMIT 1;
         "#,
         subscriber_id,
         new_subscriber.email.as_ref(),
         new_subscriber.name.as_ref(),
-        Utc::now()
+        Utc::now(),
     )
-    .execute(transaction)
+    .fetch_one(transaction)
     .await
     .map_err(|e| {
         tracing::error!("Failed to execute query: {:?}", e);
         e
     })?;
-    Ok(subscriber_id)
+    Ok(subscriber_id.id.unwrap())
 }
 
 #[tracing::instrument(
