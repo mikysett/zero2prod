@@ -42,3 +42,50 @@ impl AsRef<str> for SubscriptionToken {
         &self.0
     }
 }
+
+#[cfg(test)]
+mod test {
+    use claims::{assert_err, assert_ok};
+    use rand::{distributions::Alphanumeric, Rng};
+
+    use crate::domain::SubscriptionToken;
+
+    use super::SUBSCRIPTION_TOKEN_SIZE;
+
+    #[test]
+    fn empty_string_is_rejected() {
+        let token = "".to_string();
+        assert_err!(SubscriptionToken::parse(token));
+    }
+
+    #[test]
+    fn non_alphanumeric_string_is_rejected() {
+        let mut rng = rand::thread_rng();
+        let non_alphanumeric_chars: Vec<char> = vec![
+            '!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '-', '_', '=',
+            '+', '[', ']', '{', '}', '\\', '|', ';', ':', '\'', '"', ',', '<',
+            '.', '>', '/', '?', '`', '~',
+        ];
+        let one_char = || {
+            non_alphanumeric_chars
+                [rng.gen_range(0..non_alphanumeric_chars.len())]
+                as char
+        };
+        let invalid_token = std::iter::repeat_with(one_char)
+            .take(SUBSCRIPTION_TOKEN_SIZE)
+            .collect();
+
+        assert_err!(SubscriptionToken::parse(invalid_token));
+    }
+
+    #[test]
+    fn valid_token_is_parsed() {
+        let valid_token = rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(SUBSCRIPTION_TOKEN_SIZE)
+            .map(char::from)
+            .collect();
+
+        assert_ok!(SubscriptionToken::parse(valid_token));
+    }
+}
