@@ -4,7 +4,7 @@ use wiremock::{
 };
 
 use crate::helpers::spawn_app;
-use zero2prod::routes::generate_subscription_token;
+use zero2prod::domain::SubscriptionToken;
 
 #[tokio::test]
 async fn confirmations_without_token_are_rejected_with_a_400() {
@@ -119,9 +119,9 @@ async fn confirm_returns_a_400_when_token_do_not_exist() {
     let app = spawn_app().await;
 
     let response = reqwest::get(&format!(
-        "{}/subscriptions/confirm?subscirption_token={}",
+        "{}/subscriptions/confirm?subscirption_token={:?}",
         app.address,
-        generate_subscription_token()
+        SubscriptionToken::generate_subscription_token()
     ))
     .await
     .unwrap();
