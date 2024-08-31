@@ -1,9 +1,6 @@
 use actix_web::web;
 use actix_web::HttpResponse;
 use chrono::Utc;
-use rand::distributions::Alphanumeric;
-use rand::thread_rng;
-use rand::Rng;
 use sqlx::PgPool;
 use sqlx::Postgres;
 use sqlx::Transaction;
@@ -12,6 +9,7 @@ use uuid::Uuid;
 use crate::domain::NewSubscriber;
 use crate::domain::SubscriberEmail;
 use crate::domain::SubscriberName;
+use crate::domain::SubscriptionToken;
 use crate::email_client::EmailClient;
 use crate::startup::ApplicationBaseUrl;
 
@@ -90,7 +88,9 @@ pub async fn subscribe(
 pub async fn store_token(
     transaction: &mut Transaction<'_, Postgres>,
     subscriber_id: Uuid,
-) -> Result<String, sqlx::Error> {
+) -> Result<SubscriptionToken, sqlx::Error> {
+    let new_subscription_token =
+        SubscriptionToken::generate_subscription_token();
     let subscription_token = sqlx::query!(
         r#"
         WITH existing_user AS (
@@ -106,7 +106,7 @@ pub async fn store_token(
         SELECT subscription_token FROM existing_user
         LIMIT 1;
         "#,
-        generate_subscription_token(),
+        new_subscription_token.as_ref(),
         subscriber_id,
     )
     .fetch_one(transaction)
@@ -115,11 +115,16 @@ pub async fn store_token(
         tracing::error!("Failed to execute query: {:?}", e);
         e
     })?;
-    subscription_token
-        .subscription_token
-        .ok_or(sqlx::Error::ColumnNotFound(
+
+    match subscription_token.subscription_token {
+        Some(raw_subscription_token) => {
+            SubscriptionToken::parse(raw_subscription_token)
+                .map_err(|e| sqlx::Error::ColumnNotFound(e.to_string()))
+        }
+        None => Err(sqlx::Error::ColumnNotFound(
             "subscription_token".to_string(),
-        ))
+        )),
+    }
 }
 
 #[tracing::instrument(
@@ -169,11 +174,12 @@ pub async fn send_confirmation_email(
     email_client: &EmailClient,
     new_subscriber: NewSubscriber,
     base_url: &str,
-    subscription_token: &str,
+    subscription_token: &SubscriptionToken,
 ) -> Result<(), reqwest::Error> {
     let confirmation_link = &format!(
         "{}/subscriptions/confirm?subscription_token={}",
-        base_url, subscription_token,
+        base_url,
+        subscription_token.as_ref(),
     );
     let html_body = format!(
         "Welcome to our newsletter!<br />\
@@ -188,12 +194,4 @@ pub async fn send_confirmation_email(
     email_client
         .send_email(new_subscriber.email, "Welcome", &html_body, &text_body)
         .await
-}
-
-pub fn generate_subscription_token() -> String {
-    let mut rng = thread_rng();
-    std::iter::repeat_with(|| rng.sample(Alphanumeric))
-        .map(char::from)
-        .take(25)
-        .collect()
 }
