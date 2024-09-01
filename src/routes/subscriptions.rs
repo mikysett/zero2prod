@@ -1,5 +1,6 @@
 use actix_web::web;
 use actix_web::HttpResponse;
+use actix_web::ResponseError;
 use chrono::Utc;
 use sqlx::PgPool;
 use sqlx::Postgres;
@@ -44,27 +45,24 @@ pub async fn subscribe(
     pool: web::Data<PgPool>,
     email_client: web::Data<EmailClient>,
     base_url: web::Data<ApplicationBaseUrl>,
-) -> HttpResponse {
+) -> Result<HttpResponse, actix_web::Error> {
     let mut transaction = match pool.begin().await {
         Ok(transaction) => transaction,
-        Err(_) => return HttpResponse::InternalServerError().finish(),
+        Err(_) => return Ok(HttpResponse::InternalServerError().finish()),
     };
     let new_subscriber = match form.0.try_into() {
         Ok(new_subscriber) => new_subscriber,
-        Err(_) => return HttpResponse::BadRequest().finish(),
+        Err(_) => return Ok(HttpResponse::BadRequest().finish()),
     };
     let subscriber_id =
         match insert_subscriber(&mut transaction, &new_subscriber).await {
             Ok(subscriber_id) => subscriber_id,
-            Err(_) => return HttpResponse::InternalServerError().finish(),
+            Err(_) => return Ok(HttpResponse::InternalServerError().finish()),
         };
     let subscription_token =
-        match store_token(&mut transaction, subscriber_id).await {
-            Ok(token) => token,
-            Err(_) => return HttpResponse::InternalServerError().finish(),
-        };
+        store_token(&mut transaction, subscriber_id).await?;
     if transaction.commit().await.is_err() {
-        return HttpResponse::InternalServerError().finish();
+        return Ok(HttpResponse::InternalServerError().finish());
     }
 
     if send_confirmation_email(
@@ -76,9 +74,9 @@ pub async fn subscribe(
     .await
     .is_err()
     {
-        return HttpResponse::InternalServerError().finish();
+        return Ok(HttpResponse::InternalServerError().finish());
     }
-    HttpResponse::Ok().finish()
+    Ok(HttpResponse::Ok().finish())
 }
 
 #[tracing::instrument(
@@ -88,7 +86,7 @@ pub async fn subscribe(
 pub async fn store_token(
     transaction: &mut Transaction<'_, Postgres>,
     subscriber_id: Uuid,
-) -> Result<SubscriptionToken, sqlx::Error> {
+) -> Result<SubscriptionToken, SubscriptionTokenError> {
     let new_subscription_token =
         SubscriptionToken::generate_subscription_token();
     let subscription_token = sqlx::query!(
@@ -113,19 +111,53 @@ pub async fn store_token(
     .await
     .map_err(|e| {
         tracing::error!("Failed to execute query: {:?}", e);
-        e
+        SubscriptionTokenError(e)
     })?;
 
     match subscription_token.subscription_token {
         Some(raw_subscription_token) => {
-            SubscriptionToken::parse(raw_subscription_token)
-                .map_err(|e| sqlx::Error::ColumnNotFound(e.to_string()))
+            SubscriptionToken::parse(raw_subscription_token).map_err(|e| {
+                SubscriptionTokenError(sqlx::Error::Decode(e.into()))
+            })
         }
-        None => Err(sqlx::Error::ColumnNotFound(
-            "subscription_token".to_string(),
-        )),
+        None => Err(SubscriptionTokenError(sqlx::Error::RowNotFound)),
     }
 }
+
+struct SubscriptionTokenError(sqlx::Error);
+
+impl std::fmt::Debug for SubscriptionTokenError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        error_chain_fmt(self, f)
+    }
+}
+
+fn error_chain_fmt(
+    e: &impl std::error::Error,
+    f: &mut std::fmt::Formatter<'_>,
+) -> std::fmt::Result {
+    writeln!(f, "{}\n", e)?;
+    let mut current = e.source();
+    while let Some(cause) = current {
+        writeln!(f, "Caused by:\n\t{}", cause)?;
+        current = cause.source()
+    }
+    Ok(())
+}
+
+impl std::fmt::Display for SubscriptionTokenError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "A database error was encoutered while trying to store a subscription token")
+    }
+}
+
+impl std::error::Error for SubscriptionTokenError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.0)
+    }
+}
+
+impl ResponseError for SubscriptionTokenError {}
 
 #[tracing::instrument(
     name = "Saving new subscriber in the database",
