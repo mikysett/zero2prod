@@ -1,6 +1,9 @@
-use actix_web::{web, HttpResponse};
+use actix_web::{http::StatusCode, web, HttpResponse};
+use anyhow::Context;
 use sqlx::PgPool;
 use uuid::Uuid;
+
+use crate::routes::helpers::error_chain_fmt;
 
 #[derive(serde::Deserialize)]
 pub struct Parameters {
@@ -14,23 +17,39 @@ pub struct Parameters {
 pub async fn confirm(
     pool: web::Data<PgPool>,
     parameters: web::Query<Parameters>,
-) -> HttpResponse {
-    let id = match get_subscriber_id_from_token(
-        &pool,
-        &parameters.subscription_token,
-    )
-    .await
-    {
-        Ok(id) => id,
-        Err(_) => return HttpResponse::InternalServerError().finish(),
-    };
+) -> Result<HttpResponse, ConfirmError> {
+    let id =
+        get_subscriber_id_from_token(&pool, &parameters.subscription_token)
+            .await
+            .context("Failed to get the subscriber id from token")?;
     match id {
-        None => HttpResponse::Unauthorized().finish(),
-        Some(id) => {
-            if confirm_subscriber(&pool, &id).await.is_err() {
-                return HttpResponse::InternalServerError().finish();
-            }
-            HttpResponse::Ok().finish()
+        None => return Err(ConfirmError::UnauthorizedError),
+        Some(id) => confirm_subscriber(&pool, &id)
+            .await
+            .context("Failed to confirm the subscription")?,
+    }
+    Ok(HttpResponse::Ok().finish())
+}
+
+#[derive(thiserror::Error)]
+pub enum ConfirmError {
+    #[error("Failed to find a user matching given token")]
+    UnauthorizedError,
+    #[error(transparent)]
+    UnexpectedError(#[from] anyhow::Error),
+}
+
+impl std::fmt::Debug for ConfirmError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        error_chain_fmt(self, f)
+    }
+}
+
+impl actix_web::ResponseError for ConfirmError {
+    fn status_code(&self) -> actix_web::http::StatusCode {
+        match self {
+            Self::UnauthorizedError => StatusCode::UNAUTHORIZED,
+            Self::UnexpectedError(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }
