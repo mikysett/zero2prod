@@ -9,7 +9,6 @@ use anyhow::Context;
 use base64::Engine;
 use secrecy::Secret;
 use sqlx::PgPool;
-use tokio::task::JoinHandle;
 
 use crate::{
     authentication::{validate_credentials, AuthError, Credentials},
