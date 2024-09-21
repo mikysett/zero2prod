@@ -4,6 +4,8 @@ use crate::email_client::EmailClient;
 use crate::routes::confirm;
 use crate::routes::health_check;
 use crate::routes::home;
+use crate::routes::login;
+use crate::routes::login_form;
 use crate::routes::publish_newsletter;
 use crate::routes::subscribe;
 use actix_web::web;
@@ -83,6 +85,8 @@ pub fn run(
         App::new()
             .wrap(TracingLogger::default())
             .route("/", web::get().to(home))
+            .route("/login", web::get().to(login_form))
+            .route("/login", web::post().to(login))
             .route("/health_check", web::get().to(health_check))
             .route("/subscriptions", web::post().to(subscribe))
             .route("/subscriptions/confirm", web::get().to(confirm))
