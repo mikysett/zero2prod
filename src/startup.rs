@@ -1,6 +1,7 @@
 use crate::configuration::DatabaseSettings;
 use crate::configuration::Settings;
 use crate::email_client::EmailClient;
+use crate::routes::admin_dashboard;
 use crate::routes::confirm;
 use crate::routes::health_check;
 use crate::routes::home;
@@ -108,6 +109,7 @@ pub async fn run(
             ))
             .wrap(TracingLogger::default())
             .route("/", web::get().to(home))
+            .route("/admin/dashboard", web::get().to(admin_dashboard))
             .route("/login", web::get().to(login_form))
             .route("/login", web::post().to(login))
             .route("/health_check", web::get().to(health_check))
