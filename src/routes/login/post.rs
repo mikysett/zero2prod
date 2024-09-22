@@ -1,3 +1,4 @@
+use actix_session::Session;
 use actix_web::{
     error::InternalError, http::header::LOCATION, web, HttpResponse,
 };
@@ -32,12 +33,13 @@ impl std::fmt::Debug for LoginError {
 
 #[tracing::instrument(
     name = "Publish a newsletter issue",
-    skip(form, pool),
+    skip(form, pool, session),
     fields(username=tracing::field::Empty, user_id=tracing::field::Empty)
 )]
 pub async fn login(
     form: web::Form<FormData>,
     pool: web::Data<PgPool>,
+    session: Session,
 ) -> Result<HttpResponse, InternalError<LoginError>> {
     let credentials = Credentials {
         username: form.0.username,
@@ -50,8 +52,12 @@ pub async fn login(
         Ok(user_id) => {
             tracing::Span::current()
                 .record("user_id", &tracing::field::display(&user_id));
+            session.renew();
+            session.insert("user_id", user_id).map_err(|e| {
+                login_redirect(LoginError::UnexpectedError(e.into()))
+            })?;
             Ok(HttpResponse::SeeOther()
-                .insert_header((LOCATION, "/"))
+                .insert_header((LOCATION, "/admin/dashboard"))
                 .finish())
         }
         Err(e) => {
@@ -71,4 +77,12 @@ pub async fn login(
             Err(InternalError::from_response(e, response))
         }
     }
+}
+
+fn login_redirect(e: LoginError) -> InternalError<LoginError> {
+    FlashMessage::error(e.to_string()).send();
+    let response = HttpResponse::SeeOther()
+        .insert_header((LOCATION, "/login"))
+        .finish();
+    InternalError::from_response(e, response)
 }
