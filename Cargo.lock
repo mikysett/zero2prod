@@ -3369,6 +3369,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ea73390fe27785838dcbf75b91b1d84799e28f1ce71e6f372a5dc2200c80de5"
 dependencies = [
  "getrandom 0.2.15",
+ "serde",
 ]
 
 [[package]]
