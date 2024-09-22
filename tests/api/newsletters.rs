@@ -87,7 +87,8 @@ async fn newsletters_returns_400_for_invalid_data() {
 async fn requests_missing_authorization_are_rejected() {
     let app = spawn_app().await;
 
-    let response = reqwest::Client::new()
+    let response = app
+        .api_client
         .post(&format!("{}/newsletters", &app.address))
         .json(&serde_json::json!({
         "title": "Newsletter title",
@@ -114,7 +115,8 @@ async fn non_existing_user_is_rejected() {
     let username = Uuid::new_v4().to_string();
     let password = Uuid::new_v4().to_string();
 
-    let response = reqwest::Client::new()
+    let response = app
+        .api_client
         .post(&format!("{}/newsletters", &app.address))
         .basic_auth(username, Some(password))
         .json(&serde_json::json!({
@@ -142,7 +144,8 @@ async fn invalid_password_is_rejected() {
     let username = &app.test_user.username;
     let password = Uuid::new_v4().to_string();
 
-    let response = reqwest::Client::new()
+    let response = app
+        .api_client
         .post(&format!("{}/newsletters", &app.address))
         .basic_auth(username, Some(password))
         .json(&serde_json::json!({
