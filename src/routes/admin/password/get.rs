@@ -10,7 +10,6 @@ pub async fn change_password_form() -> Result<HttpResponse, actix_web::Error> {
                 <title>Change Password</title>
             </head>
             <body>
-                {error_html}
                 <form action="/admin/password" method="post">
                     <label
                         >Current password
