@@ -4,4 +4,3 @@ CREATE TABLE subscription_tokens(
         REFERENCES subscriptions (id),
     PRIMARY KEY (subscription_token)
 );
--- Add migration script here
