@@ -1,22 +1,23 @@
 use crate::configuration::DatabaseSettings;
-use crate::configuration::Settings;
-use crate::email_client::EmailClient;
-use crate::routes::admin_dashboard;
-use crate::routes::change_password;
-use crate::routes::change_password_form;
-use crate::routes::confirm;
-use crate::routes::health_check;
-use crate::routes::home;
-use crate::routes::login;
-use crate::routes::login_form;
-use crate::routes::publish_newsletter;
+use crate::middleware::auth_guard;
 use crate::routes::subscribe;
+use crate::{
+    configuration::Settings,
+    email_client::EmailClient,
+    routes::{
+        admin_dashboard, change_password, change_password_form, confirm,
+        health_check, home, login, login_form, publish_newsletter,
+    },
+};
 use actix_session::storage::RedisSessionStore;
 use actix_session::SessionMiddleware;
-use actix_web::cookie::Key;
-use actix_web::web;
-use actix_web::web::Data;
-use actix_web::{dev::Server, App, HttpServer};
+use actix_web::{
+    cookie::Key,
+    dev::Server,
+    middleware,
+    web::{self, Data},
+    App, HttpServer,
+};
 use actix_web_flash_messages::storage::CookieMessageStore;
 use actix_web_flash_messages::FlashMessagesFramework;
 use secrecy::ExposeSecret;
@@ -111,9 +112,13 @@ pub async fn run(
             ))
             .wrap(TracingLogger::default())
             .route("/", web::get().to(home))
-            .route("/admin/dashboard", web::get().to(admin_dashboard))
-            .route("/admin/password", web::get().to(change_password_form))
-            .route("/admin/password", web::post().to(change_password))
+            .service(
+                web::scope("/admin")
+                    .wrap(middleware::from_fn(auth_guard))
+                    .route("/dashboard", web::get().to(admin_dashboard))
+                    .route("/password", web::get().to(change_password_form))
+                    .route("/password", web::post().to(change_password)),
+            )
             .route("/login", web::get().to(login_form))
             .route("/login", web::post().to(login))
             .route("/health_check", web::get().to(health_check))

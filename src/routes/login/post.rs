@@ -9,6 +9,7 @@ use crate::{
     authentication::{validate_credentials, AuthError, Credentials},
     routes::helpers::error_chain_fmt,
     session_state::TypedSession,
+    utils::see_other,
 };
 
 #[derive(serde::Deserialize)]
@@ -41,6 +42,7 @@ pub async fn login(
     pool: web::Data<PgPool>,
     session: TypedSession,
 ) -> Result<HttpResponse, InternalError<LoginError>> {
+    let username = form.0.username.clone();
     let credentials = Credentials {
         username: form.0.username,
         password: form.0.password,
@@ -54,6 +56,9 @@ pub async fn login(
                 .record("user_id", &tracing::field::display(&user_id));
             session.renew();
             session.insert_user_id(user_id).map_err(|e| {
+                login_redirect(LoginError::UnexpectedError(e.into()))
+            })?;
+            session.insert_username(username).map_err(|e| {
                 login_redirect(LoginError::UnexpectedError(e.into()))
             })?;
             Ok(HttpResponse::SeeOther()
@@ -81,8 +86,5 @@ pub async fn login(
 
 fn login_redirect(e: LoginError) -> InternalError<LoginError> {
     FlashMessage::error(e.to_string()).send();
-    let response = HttpResponse::SeeOther()
-        .insert_header((LOCATION, "/login"))
-        .finish();
-    InternalError::from_response(e, response)
+    InternalError::from_response(e, see_other("/login"))
 }
