@@ -8,13 +8,13 @@ use actix_web::{
     middleware::Next,
 };
 
-pub async fn auth_guard<B>(
+pub async fn auth_guard(
     mut req: ServiceRequest,
-    next: Next<B>,
-) -> Result<ServiceResponse<EitherBody<BoxBody, B>>, actix_web::Error>
-where
-    B: MessageBody + 'static,
-{
+    next: Next<impl MessageBody>,
+) -> Result<
+    ServiceResponse<EitherBody<BoxBody, impl MessageBody>>,
+    actix_web::Error,
+> {
     // Extract the session from the request
     let session = req.extract::<TypedSession>().await.map_err(e500)?;
 
