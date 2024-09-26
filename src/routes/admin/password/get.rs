@@ -1,7 +1,18 @@
 use actix_web::{http::header::ContentType, HttpResponse};
+use actix_web_flash_messages::IncomingFlashMessages;
+use std::fmt::Write;
 
-pub async fn change_password_form() -> Result<HttpResponse, actix_web::Error> {
-    Ok(HttpResponse::Ok().content_type(ContentType::html()).body(
+use crate::session_state::TypedSession;
+
+pub async fn change_password_form(
+    session: TypedSession,
+    flash_messages: IncomingFlashMessages,
+) -> Result<HttpResponse, actix_web::Error> {
+    let mut msg_html = String::new();
+    for m in flash_messages.iter() {
+        writeln!(msg_html, "<p><i>{}</i></p>", m.content()).unwrap();
+    }
+    Ok(HttpResponse::Ok().content_type(ContentType::html()).body(format!(
         r#"
         <!doctype html>
         <html lang="en">
@@ -10,6 +21,7 @@ pub async fn change_password_form() -> Result<HttpResponse, actix_web::Error> {
                 <title>Change Password</title>
             </head>
             <body>
+                {msg_html}
                 <form action="/admin/password" method="post">
                     <label
                         >Current password
@@ -41,6 +53,6 @@ pub async fn change_password_form() -> Result<HttpResponse, actix_web::Error> {
                 <p><a href="/admin/dashboard">&lt;- Back</a></p>
             </body>
         </html>
-        "#
-    ))
+        "#,
+    )))
 }
