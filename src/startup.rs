@@ -1,5 +1,5 @@
+use crate::authentication::reject_anonymous_users;
 use crate::configuration::DatabaseSettings;
-use crate::middleware::auth_guard;
 use crate::routes::{log_out, subscribe};
 use crate::{
     configuration::Settings,
@@ -114,7 +114,7 @@ pub async fn run(
             .route("/", web::get().to(home))
             .service(
                 web::scope("/admin")
-                    .wrap(middleware::from_fn(auth_guard))
+                    .wrap(middleware::from_fn(reject_anonymous_users))
                     .route("/dashboard", web::get().to(admin_dashboard))
                     .route("/password", web::get().to(change_password_form))
                     .route("/password", web::post().to(change_password))
