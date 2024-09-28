@@ -100,7 +100,7 @@ pub async fn publish_newsletter(
     request: HttpRequest,
 ) -> Result<HttpResponse, PublishError> {
     let credentials = basic_authentication(request.headers())
-        .map_err(|e| PublishError::AuthError(e))?;
+        .map_err(PublishError::AuthError)?;
     let user_id = validate_credentials(credentials, &pool).await.map_err(
         |e| match e {
             AuthError::InvalidCredentials(_) => {
@@ -166,7 +166,7 @@ fn basic_authentication(
     let decoded_credentials = String::from_utf8(decoded_bytes)
         .context("The decoded credential string is not valid UTF8")?;
 
-    let mut credentials = decoded_credentials.splitn(2, ":");
+    let mut credentials = decoded_credentials.splitn(2, ':');
     let username = credentials
         .next()
         .ok_or_else(|| {

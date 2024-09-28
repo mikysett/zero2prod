@@ -1,8 +1,14 @@
 use anyhow::Context;
-use argon2::{Argon2, PasswordHash, PasswordVerifier};
+use argon2::password_hash::SaltString;
+use argon2::{
+    Algorithm, Argon2, Params, PasswordHash, PasswordHasher, PasswordVerifier,
+    Version,
+};
 use secrecy::{ExposeSecret, Secret};
 use sqlx::PgPool;
 use tokio::task::JoinHandle;
+
+use crate::domain::Password;
 
 #[derive(thiserror::Error, Debug)]
 pub enum AuthError {
@@ -77,7 +83,7 @@ fn verify_password_hash(
     password_candidate: Secret<String>,
 ) -> Result<(), AuthError> {
     let expected_password_hash =
-        PasswordHash::new(&expected_password_hash.expose_secret())
+        PasswordHash::new(expected_password_hash.expose_secret())
             .context("Failed to parse hash in PHC string format")
             .map_err(AuthError::UnexpectedError)?;
 
@@ -88,6 +94,47 @@ fn verify_password_hash(
         )
         .context("Invalid password")
         .map_err(AuthError::InvalidCredentials)
+}
+
+#[tracing::instrument(name = "Change password", skip(password, pool))]
+pub async fn change_password(
+    user_id: uuid::Uuid,
+    password: Secret<Password>,
+    pool: &PgPool,
+) -> Result<(), anyhow::Error> {
+    let password_hash =
+        spawn_blocking_with_tracing(move || compute_password_hash(&password))
+            .await
+            .context("Failed to hash password")?;
+
+    sqlx::query!(
+        r#"
+        UPDATE users
+        SET password_hash = $1
+        WHERE user_id = $2
+        "#,
+        password_hash.expose_secret(),
+        user_id,
+    )
+    .execute(pool)
+    .await
+    .context("Failed to change password")?;
+
+    Ok(())
+}
+
+fn compute_password_hash(password: &Secret<Password>) -> Secret<String> {
+    let salt = SaltString::generate(&mut rand::thread_rng());
+    Secret::new(
+        Argon2::new(
+            Algorithm::Argon2id,
+            Version::V0x13,
+            Params::new(15000, 2, 1, None).unwrap(),
+        )
+        .hash_password(password.expose_secret().as_ref().as_bytes(), &salt)
+        .unwrap()
+        .to_string(),
+    )
 }
 
 fn spawn_blocking_with_tracing<F, R>(f: F) -> JoinHandle<R>

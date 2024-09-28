@@ -1,3 +1,5 @@
+use secrecy::Zeroize;
+
 pub struct Password(String);
 
 pub enum PasswordError {
@@ -14,5 +16,18 @@ impl Password {
             return Err(PasswordError::TooLong);
         }
         Ok(Password(s))
+    }
+}
+
+impl AsRef<str> for Password {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+// To use Password in Secret<Password>
+impl Zeroize for Password {
+    fn zeroize(&mut self) {
+        self.0 = "".to_string()
     }
 }

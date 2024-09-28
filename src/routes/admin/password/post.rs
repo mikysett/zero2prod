@@ -19,11 +19,15 @@ pub struct FormData {
 
 pub async fn change_password(
     session: TypedSession,
-    pg_pool: web::Data<PgPool>,
+    pool: web::Data<PgPool>,
     form: web::Form<FormData>,
 ) -> Result<HttpResponse, actix_web::Error> {
     let username = match session.get_username().map_err(e500)? {
         Some(username) => username,
+        None => return Ok(see_other("/login")),
+    };
+    let user_id = match session.get_user_id().map_err(e500)? {
+        Some(user_id) => user_id,
         None => return Ok(see_other("/login")),
     };
 
@@ -36,7 +40,7 @@ pub async fn change_password(
 
     let new_password =
         match Password::parse(form.0.new_password.expose_secret().clone()) {
-            Ok(password) => password,
+            Ok(password) => Secret::new(password),
             Err(PasswordError::TooShort) => {
                 FlashMessage::error(
                     "The new password must be at least 12 characters long.",
@@ -57,7 +61,7 @@ pub async fn change_password(
         username,
         password: form.0.current_password,
     };
-    if let Err(e) = validate_credentials(credentials, &pg_pool).await {
+    if let Err(e) = validate_credentials(credentials, &pool).await {
         return match e {
             AuthError::InvalidCredentials(_) => {
                 FlashMessage::error("The current password is incorrect.")
@@ -67,5 +71,9 @@ pub async fn change_password(
             AuthError::UnexpectedError(_) => Err(e500(e)),
         };
     };
-    todo!()
+    crate::authentication::change_password(user_id, new_password, &pool)
+        .await
+        .map_err(e500)?;
+    FlashMessage::info("Your password has been changed.").send();
+    Ok(see_other("/admin/password"))
 }
