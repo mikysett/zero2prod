@@ -35,6 +35,10 @@ impl TypedSession {
     pub fn get_username(&self) -> Result<Option<String>, SessionGetError> {
         self.0.get(Self::USERNAME_KEY)
     }
+
+    pub fn logout(self) {
+        self.0.purge();
+    }
 }
 
 impl FromRequest for TypedSession {
