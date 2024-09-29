@@ -1,12 +1,15 @@
-use actix_web::{web, HttpResponse};
+use actix_web::{
+    web::{self, ReqData},
+    HttpResponse,
+};
 use actix_web_flash_messages::FlashMessage;
 use secrecy::{ExposeSecret, Secret};
 use sqlx::PgPool;
 
 use crate::{
-    authentication::{validate_credentials, AuthError, Credentials},
+    authentication::{validate_credentials, AuthError, Credentials, UserId},
     domain::{Password, PasswordError},
-    session_state::TypedSession,
+    routes::get_username,
     utils::{e500, see_other},
 };
 
@@ -18,18 +21,12 @@ pub struct FormData {
 }
 
 pub async fn change_password(
-    session: TypedSession,
+    user_id: ReqData<UserId>,
     pool: web::Data<PgPool>,
     form: web::Form<FormData>,
 ) -> Result<HttpResponse, actix_web::Error> {
-    let username = match session.get_username().map_err(e500)? {
-        Some(username) => username,
-        None => return Ok(see_other("/login")),
-    };
-    let user_id = match session.get_user_id().map_err(e500)? {
-        Some(user_id) => user_id,
-        None => return Ok(see_other("/login")),
-    };
+    let user_id = user_id.into_inner();
+    let username = get_username(*user_id, &pool).await.map_err(e500)?;
 
     if form.0.new_password.expose_secret()
         != form.0.new_password_check.expose_secret()
@@ -71,7 +68,7 @@ pub async fn change_password(
             AuthError::UnexpectedError(_) => Err(e500(e)),
         };
     };
-    crate::authentication::change_password(user_id, new_password, &pool)
+    crate::authentication::change_password(*user_id, new_password, &pool)
         .await
         .map_err(e500)?;
     FlashMessage::info("Your password has been changed.").send();
