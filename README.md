@@ -13,5 +13,7 @@ The main program is an email newsletter server, the scope being to create a back
 
 ## Run the application
 
-- At root run `bash scripts/init_db.sh`
+- At root run `bash scripts/init_db.sh` and ` bash/scripts/init_redis.sh`
 - This will run a local Postgres DB in a container (used for testing and compile time checks)
+
+> You may need to rease the limit of open files to run the tests with `ulimit -n 65535`
