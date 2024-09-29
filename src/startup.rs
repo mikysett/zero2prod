@@ -1,6 +1,6 @@
 use crate::authentication::reject_anonymous_users;
 use crate::configuration::DatabaseSettings;
-use crate::routes::{log_out, subscribe};
+use crate::routes::{log_out, publish_newsletter_form, subscribe};
 use crate::{
     configuration::Settings,
     email_client::EmailClient,
@@ -118,14 +118,18 @@ pub async fn run(
                     .route("/dashboard", web::get().to(admin_dashboard))
                     .route("/password", web::get().to(change_password_form))
                     .route("/password", web::post().to(change_password))
-                    .route("/logout", web::post().to(log_out)),
+                    .route("/logout", web::post().to(log_out))
+                    .route(
+                        "/newsletters",
+                        web::get().to(publish_newsletter_form),
+                    )
+                    .route("/newsletters", web::post().to(publish_newsletter)),
             )
             .route("/login", web::get().to(login_form))
             .route("/login", web::post().to(login))
             .route("/health_check", web::get().to(health_check))
             .route("/subscriptions", web::post().to(subscribe))
             .route("/subscriptions/confirm", web::get().to(confirm))
-            .route("/newsletters", web::post().to(publish_newsletter))
             .app_data(db_pool.clone())
             .app_data(email_client.clone())
             .app_data(base_url.clone())

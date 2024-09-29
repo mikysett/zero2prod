@@ -1,15 +1,23 @@
-use uuid::Uuid;
 use wiremock::{
     matchers::{any, method, path},
     Mock, ResponseTemplate,
 };
 
-use crate::helpers::{spawn_app, ConfirmationLinks, TestApp};
+use crate::helpers::{
+    assert_is_redirect_to, spawn_app, ConfirmationLinks, TestApp,
+};
 
 #[tokio::test]
 async fn newsletters_are_not_delivered_to_unconfirmed_subscribers() {
     let app = spawn_app().await;
     create_unconfirmed_subscriber(&app).await;
+
+    // Login
+    app.post_login(&serde_json::json!({
+        "username": &app.test_user.username,
+        "password": &app.test_user.password,
+    }))
+    .await;
 
     Mock::given(any())
         .respond_with(ResponseTemplate::new(200))
@@ -19,20 +27,30 @@ async fn newsletters_are_not_delivered_to_unconfirmed_subscribers() {
 
     let newsletter_request_body = serde_json::json!({
         "title": "Newsletter title",
-        "content": {
-            "text": "Newsletter body as plain text",
-            "html": "<p>Newsletter body as HTML</p>",
-        }
+        "content_text": "Newsletter body as plain text",
+        "content_html": "<p>Newsletter body as HTML</p>",
     });
-    let response = app.post_newsletters(newsletter_request_body).await;
+    let response = app.post_newsletters(&newsletter_request_body).await;
+    assert_is_redirect_to(&response, "/admin/newsletters");
 
-    assert_eq!(response.status().as_u16(), 200);
+    // Follow the redirect
+    let html_page = app.get_newsletters_html().await;
+    assert!(
+        html_page.contains(r#"<p><i>Newsletter sent successfully.</i></p>"#)
+    );
 }
 
 #[tokio::test]
 async fn newsletters_are_delivered_to_confirmed_subscribers() {
     let app = spawn_app().await;
     create_confirmed_subscriber(&app).await;
+
+    // Login
+    app.post_login(&serde_json::json!({
+        "username": &app.test_user.username,
+        "password": &app.test_user.password,
+    }))
+    .await;
 
     Mock::given(any())
         .respond_with(ResponseTemplate::new(200))
@@ -42,128 +60,94 @@ async fn newsletters_are_delivered_to_confirmed_subscribers() {
 
     let newsletter_request_body = serde_json::json!({
         "title": "Newsletter title",
-        "content": {
-            "text": "Newsletter body as plain text",
-            "html": "<p>Newsletter body as HTML</p>",
-        }
+        "content_text": "Newsletter body as plain text",
+        "content_html": "<p>Newsletter body as HTML</p>",
     });
-    let response = app.post_newsletters(newsletter_request_body).await;
+    let response = app.post_newsletters(&newsletter_request_body).await;
+    assert_is_redirect_to(&response, "/admin/newsletters");
 
-    assert_eq!(response.status().as_u16(), 200);
+    // Follow the redirect
+    let html_page = app.get_newsletters_html().await;
+    assert!(
+        html_page.contains(r#"<p><i>Newsletter sent successfully.</i></p>"#)
+    );
 }
 
 #[tokio::test]
-async fn newsletters_returns_400_for_invalid_data() {
+async fn newsletters_fields_must_not_be_empty() {
     let app = spawn_app().await;
+
+    // Login
+    app.post_login(&serde_json::json!({
+        "username": &app.test_user.username,
+        "password": &app.test_user.password,
+    }))
+    .await;
 
     let test_cases = vec![
         (
             serde_json::json!({
-                "content": {
-                    "text": "Newsletter body as plain text",
-                    "html": "<p>Newsletter body as HTML</p>",
-                }
+                "title": "",
+                "content_text": "Newsletter body as plain text",
+                "content_html": "<p>Newsletter body as HTML</p>",
             }),
-            "missing title",
+            vec!["Field title can't be empty"],
         ),
         (
-            serde_json::json!({"title": "Newsletter title"}),
-            "missing content",
+            serde_json::json!({
+                "title": "Newsletter title",
+                "content_text": "Newsletter body as plain text",
+                "content_html": ""
+            }),
+            vec!["Field HTML content can't be empty"],
+        ),
+        (
+            serde_json::json!({
+                "title": "Newsletter title",
+                "content_text": "",
+                "content_html": "<p>Newsletter body as HTML</p>"
+            }),
+            vec!["Field text content can't be empty"],
+        ),
+        (
+            serde_json::json!({
+                "title": "",
+                "content_text": "",
+                "content_html": ""
+            }),
+            vec![
+                "Field title can't be empty",
+                "Field HTML content can't be empty",
+                "Field text content can't be empty",
+            ],
         ),
     ];
 
-    for (invalid_body, error_message) in test_cases {
-        let response = app.post_newsletters(invalid_body).await;
-        assert_eq!(
-            400,
-            response.status().as_u16(),
-            "The API did not fail with 400 Bad Request when the payload was {}",
-            error_message
-        );
+    for (invalid_body, error_messages) in test_cases {
+        let response = app.post_newsletters(&invalid_body).await;
+        assert_is_redirect_to(&response, "/admin/newsletters");
+
+        // Follow the redirect
+        let html_page = app.get_newsletters_html().await;
+        for message in error_messages {
+            assert!(html_page.contains(&format!("<p><i>{}</i></p>", message)))
+        }
     }
 }
 
 #[tokio::test]
-async fn requests_missing_authorization_are_rejected() {
+async fn you_must_be_logged_in_to_send_newsletters() {
     let app = spawn_app().await;
 
     let response = app
-        .api_client
-        .post(&format!("{}/newsletters", &app.address))
-        .json(&serde_json::json!({
+        .post_newsletters(&serde_json::json!({
         "title": "Newsletter title",
-        "content": {
-            "text": "Newsletter body as plain text",
-            "html": "<p>Newsletter body as HTML</p>",
-        }
+        "content_text": "Newsletter body as plain text",
+        "content_html": "<p>Newsletter body as HTML</p>",
         }))
-        .send()
-        .await
-        .expect("Failed to executre request");
+        .await;
 
-    assert_eq!(401, response.status().as_u16());
-    assert_eq!(
-        r#"Basic realm="publish""#,
-        response.headers()["WWW-Authenticate"]
-    )
-}
-
-#[tokio::test]
-async fn non_existing_user_is_rejected() {
-    let app = spawn_app().await;
-
-    let username = Uuid::new_v4().to_string();
-    let password = Uuid::new_v4().to_string();
-
-    let response = app
-        .api_client
-        .post(&format!("{}/newsletters", &app.address))
-        .basic_auth(username, Some(password))
-        .json(&serde_json::json!({
-        "title": "Newsletter title",
-        "content": {
-            "text": "Newsletter body as plain text",
-            "html": "<p>Newsletter body as HTML</p>",
-        }
-        }))
-        .send()
-        .await
-        .expect("Failed to executre request");
-
-    assert_eq!(401, response.status().as_u16());
-    assert_eq!(
-        r#"Basic realm="publish""#,
-        response.headers()["WWW-Authenticate"]
-    )
-}
-
-#[tokio::test]
-async fn invalid_password_is_rejected() {
-    let app = spawn_app().await;
-
-    let username = &app.test_user.username;
-    let password = Uuid::new_v4().to_string();
-
-    let response = app
-        .api_client
-        .post(&format!("{}/newsletters", &app.address))
-        .basic_auth(username, Some(password))
-        .json(&serde_json::json!({
-        "title": "Newsletter title",
-        "content": {
-            "text": "Newsletter body as plain text",
-            "html": "<p>Newsletter body as HTML</p>",
-        }
-        }))
-        .send()
-        .await
-        .expect("Failed to executre request");
-
-    assert_eq!(401, response.status().as_u16());
-    assert_eq!(
-        r#"Basic realm="publish""#,
-        response.headers()["WWW-Authenticate"]
-    )
+    assert_is_redirect_to(&response, "/login");
 }
 
 async fn create_unconfirmed_subscriber(app: &TestApp) -> ConfirmationLinks {
