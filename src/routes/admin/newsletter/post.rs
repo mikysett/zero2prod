@@ -6,8 +6,11 @@ use actix_web_flash_messages::FlashMessage;
 use sqlx::PgPool;
 
 use crate::{
-    authentication::UserId, domain::SubscriberEmail, email_client::EmailClient,
-    utils::see_other,
+    authentication::UserId,
+    domain::SubscriberEmail,
+    email_client::EmailClient,
+    idempotency::{get_saved_response, IdempotencyKey},
+    utils::{e400, e500, see_other},
 };
 
 #[derive(serde::Deserialize)]
@@ -15,6 +18,7 @@ pub struct FormData {
     title: String,
     html_content: String,
     text_content: String,
+    idempotency_key: String,
 }
 
 struct ConfirmedSubscriber {
@@ -32,14 +36,34 @@ pub async fn publish_newsletter(
     email_client: web::Data<EmailClient>,
     user_id: ReqData<UserId>,
 ) -> Result<HttpResponse, actix_web::Error> {
+    let user_id = user_id.into_inner();
     tracing::Span::current()
-        .record("user_id", &tracing::field::display(user_id.into_inner()));
+        .record("user_id", &tracing::field::display(user_id));
 
     if let Err(violation_messages) = validate_newsletter_issue(&form.0) {
         for message in violation_messages {
             FlashMessage::error(message).send();
         }
         return Ok(see_other("/admin/newsletters"));
+    }
+
+    // Destructure formData to avoid borrow checker issues
+    let FormData {
+        title,
+        text_content,
+        html_content,
+        idempotency_key,
+    } = form.0;
+    let idempotency_key: IdempotencyKey =
+        idempotency_key.try_into().map_err(e400)?;
+
+    if let Some(saved_response) =
+        get_saved_response(&pool, idempotency_key, *user_id)
+            .await
+            .map_err(e500)?
+    {
+        FlashMessage::info("Newsletter sent successfully.").send();
+        return Ok(saved_response);
     }
 
     let subscribers = match get_confirmed_subscribers(&pool).await {
@@ -56,9 +80,9 @@ pub async fn publish_newsletter(
                 if let Err(_) = email_client
                     .send_email(
                         &subscriber.email,
-                        &form.0.title,
-                        &form.0.html_content,
-                        &form.0.text_content,
+                        &title,
+                        &html_content,
+                        &text_content,
                     )
                     .await
                 {

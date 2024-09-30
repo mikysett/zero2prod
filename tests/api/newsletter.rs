@@ -27,8 +27,9 @@ async fn newsletters_are_not_delivered_to_unconfirmed_subscribers() {
 
     let newsletter_request_body = serde_json::json!({
         "title": "Newsletter title",
-        "content_text": "Newsletter body as plain text",
-        "content_html": "<p>Newsletter body as HTML</p>",
+        "text_content": "Newsletter body as plain text",
+        "html_content": "<p>Newsletter body as HTML</p>",
+        "idempotency_key": uuid::Uuid::new_v4().to_string(),
     });
     let response = app.post_newsletters(&newsletter_request_body).await;
     assert_is_redirect_to(&response, "/admin/newsletters");
@@ -60,8 +61,9 @@ async fn newsletters_are_delivered_to_confirmed_subscribers() {
 
     let newsletter_request_body = serde_json::json!({
         "title": "Newsletter title",
-        "content_text": "Newsletter body as plain text",
-        "content_html": "<p>Newsletter body as HTML</p>",
+        "text_content": "Newsletter body as plain text",
+        "html_content": "<p>Newsletter body as HTML</p>",
+        "idempotency_key": uuid::Uuid::new_v4().to_string(),
     });
     let response = app.post_newsletters(&newsletter_request_body).await;
     assert_is_redirect_to(&response, "/admin/newsletters");
@@ -88,32 +90,36 @@ async fn newsletters_fields_must_not_be_empty() {
         (
             serde_json::json!({
                 "title": "",
-                "content_text": "Newsletter body as plain text",
-                "content_html": "<p>Newsletter body as HTML</p>",
+                "text_content": "Newsletter body as plain text",
+                "html_content": "<p>Newsletter body as HTML</p>",
+                "idempotency_key": uuid::Uuid::new_v4().to_string(),
             }),
             vec!["Field title can't be empty"],
         ),
         (
             serde_json::json!({
                 "title": "Newsletter title",
-                "content_text": "Newsletter body as plain text",
-                "content_html": ""
+                "text_content": "Newsletter body as plain text",
+                "html_content": "",
+                "idempotency_key": uuid::Uuid::new_v4().to_string(),
             }),
             vec!["Field HTML content can't be empty"],
         ),
         (
             serde_json::json!({
                 "title": "Newsletter title",
-                "content_text": "",
-                "content_html": "<p>Newsletter body as HTML</p>"
+                "text_content": "",
+                "html_content": "<p>Newsletter body as HTML</p>",
+                "idempotency_key": uuid::Uuid::new_v4().to_string(),
             }),
             vec!["Field text content can't be empty"],
         ),
         (
             serde_json::json!({
                 "title": "",
-                "content_text": "",
-                "content_html": ""
+                "text_content": "",
+                "html_content": "",
+                "idempotency_key": uuid::Uuid::new_v4().to_string(),
             }),
             vec![
                 "Field title can't be empty",
@@ -142,8 +148,9 @@ async fn you_must_be_logged_in_to_send_newsletters() {
     let response = app
         .post_newsletters(&serde_json::json!({
         "title": "Newsletter title",
-        "content_text": "Newsletter body as plain text",
-        "content_html": "<p>Newsletter body as HTML</p>",
+        "text_content": "Newsletter body as plain text",
+        "html_content": "<p>Newsletter body as HTML</p>",
+        "idempotency_key": uuid::Uuid::new_v4().to_string(),
         }))
         .await;
 
@@ -184,4 +191,48 @@ async fn create_confirmed_subscriber(app: &TestApp) {
         .unwrap()
         .error_for_status()
         .unwrap();
+}
+
+#[tokio::test]
+async fn newsletter_creation_is_idempotent() {
+    let app = spawn_app().await;
+    create_confirmed_subscriber(&app).await;
+
+    // Login
+    app.post_login(&serde_json::json!({
+        "username": &app.test_user.username,
+        "password": &app.test_user.password,
+    }))
+    .await;
+
+    Mock::given(any())
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&app.email_server)
+        .await;
+
+    let newsletter_request_body = serde_json::json!({
+        "title": "Newsletter title",
+        "text_content": "Newsletter body as plain text",
+        "html_content": "<p>Newsletter body as HTML</p>",
+        "idempotency_key": uuid::Uuid::new_v4().to_string(),
+    });
+    let response = app.post_newsletters(&newsletter_request_body).await;
+    assert_is_redirect_to(&response, "/admin/newsletters");
+
+    // Follow the redirect
+    let html_page = app.get_newsletters_html().await;
+    assert!(
+        html_page.contains(r#"<p><i>Newsletter sent successfully.</i></p>"#)
+    );
+
+    // Send the newsletter **agian**
+    let response = app.post_newsletters(&newsletter_request_body).await;
+    assert_is_redirect_to(&response, "/admin/newsletters");
+
+    // Follow the redirect
+    let html_page = app.get_newsletters_html().await;
+    assert!(
+        html_page.contains(r#"<p><i>Newsletter sent successfully.</i></p>"#)
+    );
 }
