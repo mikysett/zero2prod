@@ -13,8 +13,8 @@ use crate::{
 #[derive(serde::Deserialize)]
 pub struct FormData {
     title: String,
-    content_html: String,
-    content_text: String,
+    html_content: String,
+    text_content: String,
 }
 
 struct ConfirmedSubscriber {
@@ -57,8 +57,8 @@ pub async fn publish_newsletter(
                     .send_email(
                         &subscriber.email,
                         &form.0.title,
-                        &form.0.content_html,
-                        &form.0.content_text,
+                        &form.0.html_content,
+                        &form.0.text_content,
                     )
                     .await
                 {
@@ -87,8 +87,8 @@ pub async fn publish_newsletter(
 fn validate_newsletter_issue(form: &FormData) -> Result<(), Vec<String>> {
     let violation_messages: Vec<String> = [
         ("title", &form.title),
-        ("HTML content", &form.content_html),
-        ("text content", &form.content_text),
+        ("HTML content", &form.html_content),
+        ("text content", &form.text_content),
     ]
     .iter()
     .filter_map(|field| {
