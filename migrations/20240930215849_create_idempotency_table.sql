@@ -9,6 +9,6 @@ CREATE TABLE idempotency (
     response_status_code SMALLINT NOT NULL,
     response_headers header_pair[] NOT NULL,
     response_body BYTEA NOT NULL,
-    create_at timestamptz NOT NULL,
+    created_at timestamptz NOT NULL,
     PRIMARY KEY(user_id, idempotency_key)
 );
