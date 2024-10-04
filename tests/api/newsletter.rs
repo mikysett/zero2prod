@@ -240,7 +240,7 @@ async fn newsletter_creation_is_idempotent() {
 }
 
 #[tokio::test]
-async fn conturrent_form_submission_is_handled_gracefully() {
+async fn concurrent_form_submission_is_handled_gracefully() {
     let app = spawn_app().await;
     create_confirmed_subscriber(&app).await;
 
