@@ -47,7 +47,7 @@ async fn newsletters_are_not_delivered_to_unconfirmed_subscribers() {
     // Follow the redirect
     let html_page = app.get_newsletters_html().await;
     assert!(
-        html_page.contains(r#"<p><i>Newsletter sent successfully.</i></p>"#)
+        html_page.contains(r#"<p><i>The newsletter issue has been accepted - emails will go out shortly.</i></p>"#)
     );
 }
 
@@ -81,7 +81,7 @@ async fn newsletters_are_delivered_to_confirmed_subscribers() {
     // Follow the redirect
     let html_page = app.get_newsletters_html().await;
     assert!(
-        html_page.contains(r#"<p><i>Newsletter sent successfully.</i></p>"#)
+        html_page.contains(r#"<p><i>The newsletter issue has been accepted - emails will go out shortly.</i></p>"#)
     );
 }
 
@@ -239,7 +239,7 @@ async fn newsletter_creation_is_idempotent() {
     // Follow the redirect
     let html_page = app.get_newsletters_html().await;
     assert!(
-        html_page.contains(r#"<p><i>Newsletter sent successfully.</i></p>"#)
+        html_page.contains(r#"<p><i>The newsletter issue has been accepted - emails will go out shortly.</i></p>"#)
     );
 
     // Send the newsletter **agian**
@@ -249,7 +249,7 @@ async fn newsletter_creation_is_idempotent() {
     // Follow the redirect
     let html_page = app.get_newsletters_html().await;
     assert!(
-        html_page.contains(r#"<p><i>Newsletter sent successfully.</i></p>"#)
+        html_page.contains(r#"<p><i>The newsletter issue has been accepted - emails will go out shortly.</i></p>"#)
     );
 }
 
