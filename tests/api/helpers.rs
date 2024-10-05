@@ -65,6 +65,14 @@ impl TestUser {
         .await
         .expect("Failed to create test users");
     }
+
+    pub async fn login(&self, app: &TestApp) -> reqwest::Response {
+        app.post_login(&serde_json::json!({
+            "username": self.username,
+            "password": self.password,
+        }))
+        .await
+    }
 }
 
 pub struct TestApp {

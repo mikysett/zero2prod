@@ -3,13 +3,14 @@ use actix_web::{
     HttpResponse,
 };
 use actix_web_flash_messages::FlashMessage;
+use anyhow::Context;
 use sqlx::PgPool;
 
 use crate::{
     authentication::UserId,
     domain::SubscriberEmail,
     email_client::EmailClient,
-    idempotency::{get_saved_response, save_response, IdempotencyKey},
+    idempotency::{save_response, try_processing, IdempotencyKey, NextAction},
     utils::{e400, e500, see_other},
 };
 
@@ -57,14 +58,16 @@ pub async fn publish_newsletter(
     let idempotency_key: IdempotencyKey =
         idempotency_key.try_into().map_err(e400)?;
 
-    if let Some(saved_response) =
-        get_saved_response(&pool, &idempotency_key, *user_id)
-            .await
-            .map_err(e500)?
+    let transaction = match try_processing(&pool, &idempotency_key, *user_id)
+        .await
+        .map_err(e500)?
     {
-        FlashMessage::info("Newsletter sent successfully.").send();
-        return Ok(saved_response);
-    }
+        NextAction::StartProcessing(transaction) => transaction,
+        NextAction::ReturnSavedResponse(saved_response) => {
+            success_message().send();
+            return Ok(saved_response);
+        }
+    };
 
     let subscribers = match get_confirmed_subscribers(&pool).await {
         Ok(subscribers) => subscribers,
@@ -77,7 +80,7 @@ pub async fn publish_newsletter(
     for subscriber in subscribers {
         match subscriber {
             Ok(subscriber) => {
-                if let Err(_) = email_client
+                email_client
                     .send_email(
                         &subscriber.email,
                         &title,
@@ -85,14 +88,13 @@ pub async fn publish_newsletter(
                         &text_content,
                     )
                     .await
-                {
-                    FlashMessage::error(format!(
-                        "Failed to send newsletter issue to {}",
-                        subscriber.email
-                    ))
-                    .send();
-                    return Ok(see_other("/admin/newsletters"));
-                }
+                    .with_context(|| {
+                        format!(
+                            "Failed to send newsletter issue to {}",
+                            subscriber.email
+                        )
+                    })
+                    .map_err(e500)?;
             }
             Err(error) => {
                 tracing::warn!(
@@ -106,10 +108,15 @@ pub async fn publish_newsletter(
 
     FlashMessage::info("Newsletter sent successfully.").send();
     let response = see_other("/admin/newsletters");
-    let response = save_response(&pool, &idempotency_key, *user_id, response)
-        .await
-        .map_err(e500)?;
+    let response =
+        save_response(transaction, &idempotency_key, *user_id, response)
+            .await
+            .map_err(e500)?;
     Ok(response)
+}
+
+fn success_message() -> FlashMessage {
+    FlashMessage::info("Newsletter sent successfully.")
 }
 
 fn validate_newsletter_issue(form: &FormData) -> Result<(), Vec<String>> {
