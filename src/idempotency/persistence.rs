@@ -22,6 +22,7 @@ pub enum NextAction {
     ReturnSavedResponse(HttpResponse),
 }
 
+// TODO: implement expiring mechanism for idempotency keys
 pub async fn try_processing(
     pool: &PgPool,
     idempotency_key: &IdempotencyKey,
@@ -47,14 +48,13 @@ pub async fn try_processing(
     if n_inserted_rows > 0 {
         Ok(NextAction::StartProcessing(transaction))
     } else {
-        let saved_response =
-            get_saved_response(&pool, idempotency_key, user_id)
-                .await?
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "We expected a saved response, we didn't find it"
-                    )
-                })?;
+        let saved_response = get_saved_response(pool, idempotency_key, user_id)
+            .await?
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "We expected a saved response, we didn't find it"
+                )
+            })?;
         Ok(NextAction::ReturnSavedResponse(saved_response))
     }
 }
