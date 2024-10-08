@@ -6,6 +6,8 @@ use sqlx::{Connection, Executor, PgConnection, PgPool};
 use uuid::Uuid;
 use wiremock::MockServer;
 use zero2prod::configuration::{get_configuration, DatabaseSettings};
+use zero2prod::email_client::EmailClient;
+use zero2prod::issue_delivery_worker::{try_execute_task, ExecutionOutcome};
 use zero2prod::startup::get_connection_pool;
 use zero2prod::startup::Application;
 use zero2prod::telemetry::{get_subscriber, init_subscriber};
@@ -65,14 +67,6 @@ impl TestUser {
         .await
         .expect("Failed to create test users");
     }
-
-    pub async fn login(&self, app: &TestApp) -> reqwest::Response {
-        app.post_login(&serde_json::json!({
-            "username": self.username,
-            "password": self.password,
-        }))
-        .await
-    }
 }
 
 pub struct TestApp {
@@ -82,6 +76,7 @@ pub struct TestApp {
     pub email_server: MockServer,
     pub test_user: TestUser,
     pub api_client: reqwest::Client,
+    pub email_client: EmailClient,
 }
 
 impl TestApp {
@@ -93,6 +88,18 @@ impl TestApp {
             .send()
             .await
             .expect("Failed to execute request.")
+    }
+
+    pub async fn dispatch_all_pending_emails(&self) {
+        loop {
+            if let ExecutionOutcome::EmptyQueue =
+                try_execute_task(&self.db_pool, &self.email_client)
+                    .await
+                    .unwrap()
+            {
+                break;
+            }
+        }
     }
 
     pub fn get_confirmation_links(
@@ -134,7 +141,7 @@ impl TestApp {
             .expect("Failed to execute request")
     }
 
-    pub async fn get_newsletters_html(&self) -> String {
+    pub async fn get_publish_newsletter_html(&self) -> String {
         self.api_client
             .get(&format!("{}/admin/newsletters", &self.address))
             .send()
@@ -252,6 +259,7 @@ pub async fn spawn_app() -> TestApp {
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .unwrap();
+    let email_client = configuration.email_client.client();
 
     let test_app = TestApp {
         port,
@@ -260,6 +268,7 @@ pub async fn spawn_app() -> TestApp {
         email_server,
         test_user: TestUser::generate(),
         api_client,
+        email_client,
     };
     test_app.test_user.store(&test_app.db_pool).await;
     test_app

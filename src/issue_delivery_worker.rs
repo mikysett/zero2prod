@@ -1,8 +1,18 @@
+use std::time::Duration;
+
 use sqlx::{PgPool, Postgres, Transaction};
 use tracing::{field::display, Span};
 use uuid::Uuid;
 
-use crate::{domain::SubscriberEmail, email_client::EmailClient};
+use crate::{
+    configuration::Settings, domain::SubscriberEmail,
+    email_client::EmailClient, startup::get_connection_pool,
+};
+
+pub enum ExecutionOutcome {
+    TaskCompleted,
+    EmptyQueue,
+}
 
 #[tracing::instrument(
     skip_all,
@@ -14,7 +24,7 @@ use crate::{domain::SubscriberEmail, email_client::EmailClient};
 pub async fn try_execute_task(
     pool: &PgPool,
     email_client: &EmailClient,
-) -> Result<(), anyhow::Error> {
+) -> Result<ExecutionOutcome, anyhow::Error> {
     if let Some((transaction, issue_id, email)) = dequeue_task(pool).await? {
         Span::current()
             .record("newsletter_issue_id", &display(issue_id))
@@ -41,8 +51,10 @@ pub async fn try_execute_task(
             }
         }
         delete_task(transaction, issue_id, &email).await?;
+        Ok(ExecutionOutcome::TaskCompleted)
+    } else {
+        Ok(ExecutionOutcome::EmptyQueue)
     }
-    Ok(())
 }
 
 type PgTransaction = Transaction<'static, Postgres>;
@@ -119,4 +131,29 @@ async fn get_issue(
     .fetch_one(pool)
     .await?;
     Ok(issue)
+}
+
+async fn worker_loop(
+    pool: PgPool,
+    email_client: EmailClient,
+) -> Result<(), anyhow::Error> {
+    loop {
+        // TODO: Differenciate between transient and fatal failures
+        // wrong email format is fatal for example
+        match try_execute_task(&pool, &email_client).await {
+            Ok(ExecutionOutcome::EmptyQueue) => {
+                tokio::time::sleep(Duration::from_secs(10)).await
+            }
+            Ok(ExecutionOutcome::TaskCompleted) => {}
+            Err(_) => tokio::time::sleep(Duration::from_secs(1)).await,
+        }
+    }
+}
+
+pub async fn run_worker_until_stopped(
+    configuration: Settings,
+) -> Result<(), anyhow::Error> {
+    let connection_pool = get_connection_pool(&configuration.database);
+    let email_client = configuration.email_client.client();
+    worker_loop(connection_pool, email_client).await
 }
